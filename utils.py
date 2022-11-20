@@ -76,7 +76,9 @@ def resize_image(
     return resized_image, pad_h, pad_w, scale
 
 
-def plot_boxes(image: np.ndarray, boxes: np.ndarray, verbose=True) -> np.ndarray:
+def plot_boxes(
+    image: np.ndarray, boxes: np.ndarray, verbose=True, plot_details="min"
+) -> np.ndarray:
     """Function to plot the bounding boxes on given image.
 
     Args:
@@ -84,6 +86,7 @@ def plot_boxes(image: np.ndarray, boxes: np.ndarray, verbose=True) -> np.ndarray
         boxes (np.ndarray): Bounding boxes in [xc, yc, w, h, cls_id, cls_prob, track_id]
             format. track_id is only found in boxes if the boxes are coming from tracker.
         verbose (bool): Boolean value indicating whether to print boxes or not.
+        plot_details (str): Level of details to be plotted on the image.
 
     Returns:
         np.ndarray: Image with boxes plotted on it.
@@ -115,9 +118,15 @@ def plot_boxes(image: np.ndarray, boxes: np.ndarray, verbose=True) -> np.ndarray
         cv2.rectangle(image, (X1, Y1), (X2, Y2), (0, 255, 0), 2)
 
         if track_id is None:
-            text_string = f"Class: {cls_id}, Prob: {int(cls_prob*100)}"
+            if plot_details == "min":
+                text_string = f"{cls_id}, {int(cls_prob*100)}"
+            else:
+                text_string = f"Class: {cls_id}, Prob: {int(cls_prob*100)}"
         else:
-            text_string = f"Class: {cls_id}, ID: {track_id}"
+            if plot_details == "min":
+                text_string = f"{int(track_id)}"
+            else:
+                text_string = f"Class: {cls_id}, ID: {int(track_id)}"
 
         (test_width, text_height), baseline = cv2.getTextSize(
             text_string, cv2.FONT_HERSHEY_SIMPLEX, 0.75, 1

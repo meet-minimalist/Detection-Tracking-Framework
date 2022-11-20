@@ -17,10 +17,6 @@ from utils import convert_to_3_channel_grayscale, resize_image
 
 np.set_printoptions(suppress=True)
 
-# if platform.system() == "Windows":
-#     from openvino import utils
-#     utils.add_openvino_libs_to_path()
-
 
 class Detector:
     """
@@ -68,7 +64,11 @@ class Detector:
             ort.GraphOptimizationLevel.ORT_ENABLE_ALL
         )
         if device.lower() == "cpu":
-            exec_providers = ["OpenVINOExecutionProvider", "CPUExecutionProvider"]
+            if platform.system() == "Windows":
+                from openvino import utils
+
+                utils.add_openvino_libs_to_path()
+            exec_providers = ["OpenVINOExecutionProvider"]
             provider_options = [{"device_type": "CPU_FP32"}]
             # It is advisable to disable ort optimizations as openvino will
             # apply device specific optimizations.

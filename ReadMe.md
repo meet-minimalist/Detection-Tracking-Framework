@@ -3,13 +3,17 @@
 
 ### Here we have used YoloV5 as a detector and Kalman tracker as tracking algorithm.
 
-# Requirements
+# Requirements for GPU backend inference
 1. conda create -n hackathon python=3.9.13
 2. conda activate hackathon
-conda install cudatoolkit=11.5.0 -c nvidia
-3. conda install cudatoolkit=11.6.0 -c conda-forge  # Required for GPU backend
-4. conda install cudnn=8.4.1.50 -c conda-forge      # Required for GPU backend
-5. pip install -r requirements.txt
+3. conda install cudatoolkit=11.3.1 -c nvidia
+4. conda install cudnn=8.2.1 -c nvidia
+5. pip install -r requirements_gpu.txt
+
+# Requirements for CPU backend inference
+1. conda create -n hackathon python=3.9.13
+2. conda activate hackathon
+3. pip install -r requirements_cpu.txt
 
 # Weights
 - The detector model is YoloV5 which is trained on Indian Driving Dataset taken from Kaggle. (https://www.kaggle.com/datasets/manjotpahwa/indian-driving-dataset)

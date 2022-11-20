@@ -168,6 +168,16 @@ if args.vid_path is not None and not os.path.isfile(args.vid_path):
     exit()
 elif args.vid_path is not None:
     video = cv2.VideoCapture(args.vid_path)
+    frame_w = int(video.get(3))
+    frame_h = int(video.get(4))
+    fps = int(video.get(5))
+    output_res_path = os.path.join(
+        args.output_dir,
+        os.path.splitext(os.path.basename(args.vid_path))[0] + "_result.mp4",
+    )
+    writer = cv2.VideoWriter(
+        output_res_path, cv2.VideoWriter_fourcc(*"MP4V"), fps, (frame_w, frame_h)
+    )
 
     ctr = 0
     while True:
@@ -180,9 +190,9 @@ elif args.vid_path is not None:
             idx_mapping = tracker.initialize_tracker(frame, res)
         else:
             idx_mapping = tracker.get_predictions(frame)
-        print(idx_mapping.shape)
 
-        res_frame = plot_boxes(frame, idx_mapping, verbose=True)
+        res_frame = plot_boxes(frame, idx_mapping, verbose=False)
+        writer.write(res_frame)
         res_frame = cv2.resize(res_frame, (640, 480))
         cv2.imshow("res_frame", res_frame)
         k = cv2.waitKey(10) & 0xFF
@@ -192,3 +202,4 @@ elif args.vid_path is not None:
         ctr += 1
 
     cv2.destroyAllWindows()
+    writer.release()

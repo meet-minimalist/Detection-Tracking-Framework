@@ -1,5 +1,0 @@
-onnxruntime==1.13.1
-onnxruntime-gpu==1.13.1
-openvino==2022.2.0
-onnxruntime-openvino==1.12.0
-opencv_contrib_python==4.6.0.66
