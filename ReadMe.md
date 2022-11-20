@@ -16,9 +16,9 @@
 3. pip install -r requirements_cpu.txt
 
 # Weights
-- The detector model is YoloV5 which is trained on Indian Driving Dataset taken from Kaggle. (https://www.kaggle.com/datasets/manjotpahwa/indian-driving-dataset)
+- The detector model is YoloV5 which is trained on [Indian Driving Dataset](https://www.kaggle.com/datasets/manjotpahwa/indian-driving-dataset) taken from Kaggle.
 - We applied some cleanup to the dataset before using.
-- Weights can be downloaded from ().
+- Weights can be downloaded from [link](https://drive.google.com/file/d/1OQWbFYv1K5lzis1G1BChJGdRzkWe6-ja/view?usp=share_link).
 
 # Usage:
 > 
