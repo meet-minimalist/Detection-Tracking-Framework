@@ -6,14 +6,20 @@
 ##
 
 import os
+import platform
+import time
 from typing import Dict, List, Tuple
 
 import numpy as np
 import onnxruntime as ort
 
-from utils import resize_image
+from utils import convert_to_3_channel_grayscale, resize_image
 
 np.set_printoptions(suppress=True)
+
+# if platform.system() == "Windows":
+#     from openvino import utils
+#     utils.add_openvino_libs_to_path()
 
 
 class Detector:
@@ -24,19 +30,17 @@ class Detector:
     def __init__(
         self,
         onnx_model_path: str,
-        input_name: str,
-        output_name: str,
         iou_threshold: float = 0.5,
         score_threshold: float = 0.5,
         filtered_classes: List[str] = [],
         cls_name_to_id_mapping: Dict = {},
+        infer_on_grayscale=True,
+        device="cpu",
     ):
         """Constructor of Detector module
 
         Args:
             onnx_model_path (str): Onnx model path
-            input_name (str): Name of the input tensor
-            output_name (str): Name of the output tensor
             iou_threshold (float, optional): IOU Threshold for NMS. Defaults to
                 0.5.
             score_threshold (float, optional): Score Threshold for NMS. Defaults
@@ -45,6 +49,11 @@ class Detector:
                 output. Defaults to [].
             cls_name_to_id_mapping (Dict, optional): Mapping of class name to
                 class id. Defaults to {}.
+            infer_on_grayscale (bool, optional): Run inference on grayscale 3
+                channel image. This is required for IDD trained model.
+                Defaults to True.
+            device (str, optional): Device on which inference is to be executed.
+                Available devices are 'cpu' and 'gpu'. Defaults to 'cpu'.
 
         Raises:
             FileNotFoundError: If onnx model path is not found then this will be
@@ -58,14 +67,40 @@ class Detector:
         sess_options.graph_optimization_level = (
             ort.GraphOptimizationLevel.ORT_ENABLE_ALL
         )
-        self.sess = ort.InferenceSession(self.model_path, sess_options)
-        self.input_name = input_name
-        self.output_name = output_name
+        if device.lower() == "cpu":
+            exec_providers = ["OpenVINOExecutionProvider", "CPUExecutionProvider"]
+            provider_options = [{"device_type": "CPU_FP32"}]
+            # It is advisable to disable ort optimizations as openvino will
+            # apply device specific optimizations.
+            sess_options.graph_optimization_level = (
+                ort.GraphOptimizationLevel.ORT_DISABLE_ALL
+            )
+        else:
+            exec_providers = ["CUDAExecutionProvider"]
+            provider_options = None
+
+        self.sess = ort.InferenceSession(
+            self.model_path,
+            sess_options,
+            providers=exec_providers,
+            provider_options=provider_options,
+        )
+        assert len(self.sess.get_inputs()) == 1, "Model should have only one input."
+        assert len(self.sess.get_outputs()) == 1, "Model should have only one output."
+
+        self.input_name = self.sess.get_inputs()[0].name
+        self.output_name = self.sess.get_outputs()[0].name
+        self.input_hw = self.sess.get_inputs()[0].shape[2:4]
         self.iou_threshold = iou_threshold
         self.score_threshold = score_threshold
+        self.infer_on_grayscale = infer_on_grayscale
         self.return_all_classes = True if len(filtered_classes) == 0 else False
         self.filtered_classes = filtered_classes
         self.cls_name_to_id_mapping = cls_name_to_id_mapping
+        self.filtered_class_ids = [
+            self.cls_name_to_id_mapping[class_name]
+            for class_name in self.filtered_classes
+        ]
 
     def __preprocess_img(
         self, image: np.ndarray
@@ -79,7 +114,9 @@ class Detector:
             Tuple[np.ndarray, float, float, float]: Tuple of resized image
                 numpy array, pad at the top, pad at the left side and scaling factor.
         """
-        resized_image, pad_h, pad_w, scale = resize_image(image, (640, 640))
+        resized_image, pad_h, pad_w, scale = resize_image(image, self.input_hw)
+        if self.infer_on_grayscale:
+            resized_image = convert_to_3_channel_grayscale(resized_image)
         resized_image = np.float32(resized_image)
         resized_image = np.expand_dims(resized_image, axis=0)
         resized_image = np.transpose(resized_image, (0, 3, 1, 2))
@@ -104,8 +141,7 @@ class Detector:
         probs = decoded_boxes[0, :, 5:] * decoded_boxes[0, :, 4:5]
         cls_ids = np.argmax(probs, axis=1)
         probs = np.max(probs, axis=1)
-
-        filtered_idx = [probs > self.score_threshold]
+        filtered_idx = [probs > self.score_threshold][0]
         bboxes = bboxes[filtered_idx]
         probs = probs[filtered_idx]
         cls_ids = cls_ids[filtered_idx]
@@ -208,11 +244,12 @@ class Detector:
             return boxes
         else:
             final_boxes = []
-            for class_name in self.filtered_classes:
-                class_ids = self.cls_name_to_id_mapping[class_name]
-                final_boxes.append(boxes[boxes[:, 4] == class_ids])
-
-            final_boxes = np.array(final_boxes)[0]
+            for box in boxes:
+                cls_id = box[-2]
+                if cls_id in self.filtered_class_ids:
+                    final_boxes.append(box)
+            if len(final_boxes) != 0:
+                final_boxes = np.stack(final_boxes, axis=0)
             return final_boxes
 
     def detect_boxes(self, image: np.ndarray) -> np.ndarray:
@@ -238,3 +275,22 @@ class Detector:
         result_boxes = self.__upscale_boxes(result_boxes, pad_h, pad_w, scale)
         result_boxes = self.__filter_classes(result_boxes)
         return result_boxes
+
+    def benchmark(self) -> None:
+        """Benchmark detector algorithm for its latency."""
+        random_data = np.float32(
+            np.random.randn(1, 3, self.input_hw[0], self.input_hw[1])
+        )
+        avg_time = []
+        for _ in range(100):
+            start = time.time()
+            decoded_boxes = self.sess.run(
+                [self.output_name], {self.input_name: random_data}
+            )[0]
+            delta = time.time() - start
+            avg_time.append(delta)
+        avg_time = np.mean(avg_time)  # in seconds
+        print("==" * 30)
+        print(f"Detector Avg inference time: {int(avg_time*1000)} ms")
+        print(f"Detector Avg FPS: {int(1/avg_time)}")
+        print("==" * 30)

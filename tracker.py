@@ -77,10 +77,26 @@ class Tracker:
         xc, yc, w, h = box[:4]
         x1 = int(xc - w / 2)
         y1 = int(yc - h / 2)
-        bb_xywh = [x1, y1, int(w), int(h), box[4], box[5]]
+        bb_xywh = [x1, y1, int(w), int(h), *box[4:]]
         return bb_xywh
 
-    def initialize_tracker(self, image: np.ndarray, boxes: np.ndarray) -> List:
+    def x1y1wh_xcycwh(self, box: np.ndarray) -> np.ndarray:
+        """Function to convert a box from [x1, y1, w, h] format into
+        [xc, yc, w, h] format.
+
+        Args:
+            box (np.ndarray): Bounding box in [x1, y1, w, h] format.
+
+        Returns:
+            np.ndarray: Updated bounding box in [xc, yc, w, h] format.
+        """
+        x1, y1, w, h = box[:4]
+        xc = int(x1 + w / 2)
+        yc = int(y1 + h / 2)
+        bb_xcycwh = [xc, yc, int(w), int(h), *box[4:]]
+        return bb_xcycwh
+
+    def initialize_tracker(self, image: np.ndarray, boxes: np.ndarray) -> np.ndarray:
         """Function to initialize new tracker based detection boxes.
 
         Args:
@@ -89,8 +105,8 @@ class Tracker:
                 format of [xc, yc, w, h, class_id, class_probability].
 
         Returns:
-            List: List with each element having tracking id and detected box in
-                the shape [N, 6], in the format [x1, y1, w, h, class_id, class_probability].
+            np.ndarray: Numpy array with the shape [N, 7], in the format
+                [xc, yc, w, h, class_id, class_probability, track_id].
         """
         if len(boxes) == 0:
             self.all_trackers = []
@@ -103,14 +119,16 @@ class Tracker:
                 # Initialize tracker with first frame and bounding box
                 tracker = self.get_new_tracker()
                 status = tracker.init(image, bb_xywh[:4])
-                self.all_trackers.append([self.unique_object_counter, tracker])
-                idx_mapping.append([self.unique_object_counter, bb_xywh])
+                cls_id = bb_xywh[4]
+                self.all_trackers.append([self.unique_object_counter, tracker, cls_id])
+                idx_mapping.append([*bb, self.unique_object_counter])
                 self.unique_object_counter += 1
 
             self.tracker_initialized = True
         else:
             tracker_predictions = self.get_predictions(image)
-            # List of [id, [4]]
+            # np.ndarray of [N, 7] shape, in format of
+            # [xc, yc, w, h, class_id, -1, track_id]
 
             self.all_trackers = []
             for bb in boxes:
@@ -118,14 +136,16 @@ class Tracker:
 
                 existing_tracker_found = False
                 for tracker_pred in tracker_predictions:
-                    track_id, track_bbx = tracker_pred
+                    *track_bbx, track_id = tracker_pred
+                    track_bbx = self.xcycwh_x1y1wh(track_bbx)
 
                     iou = self.iou(track_bbx, bb_xywh)
                     if iou > self.iou_threshold:
                         new_tracker = self.get_new_tracker()
                         new_tracker.init(image, bb_xywh[:4])
-                        self.all_trackers.append([track_id, new_tracker])
-                        idx_mapping.append([track_id, bb_xywh])
+                        cls_id = bb_xywh[4]
+                        self.all_trackers.append([track_id, new_tracker, cls_id])
+                        idx_mapping.append([*bb, track_id])
                         existing_tracker_found = True
                         break
                     else:
@@ -134,25 +154,30 @@ class Tracker:
                 if not existing_tracker_found:
                     new_tracker = self.get_new_tracker()
                     new_tracker.init(image, bb_xywh[:4])
-                    self.all_trackers.append([self.unique_object_counter, new_tracker])
-                    idx_mapping.append([self.unique_object_counter, bb_xywh])
+                    cls_id = bb_xywh[4]
+                    self.all_trackers.append(
+                        [self.unique_object_counter, new_tracker, cls_id]
+                    )
+                    idx_mapping.append([*bb, self.unique_object_counter])
                     self.unique_object_counter += 1
 
-        return idx_mapping
+        return np.array(idx_mapping)
 
-    def get_predictions(self, image: np.ndarray) -> List:
+    def get_predictions(self, image: np.ndarray) -> np.ndarray:
         """Function to get the predictions from existing trackers.
 
         Args:
             image (np.ndarray): Original image in [H, W, 3] shape.
 
         Returns:
-            List: List with each item having one tracking id and tracked bbox.
-                Tracked bbox in [x1, y1, w, h] format.
+            np.ndarray: Numpy array with the shape [N, 7], in the format
+                [xc, yc, w, h, class_id, -1, track_id].
         """
         result = []
-        for id, tracker in self.all_trackers:
+        for id, tracker, cls_id in self.all_trackers:
             status, bbox = tracker.update(image)
-            result.append([id, bbox])
+            bbox = list(bbox)
+            bbox[:4] = self.x1y1wh_xcycwh(bbox[:4])
+            result.append([*bbox, cls_id, -1, id])
 
-        return result
+        return np.array(result)
